@@ -224,13 +224,12 @@ class Logout:
 # ---------------------
 # EDA 페이지 클래스
 # ---------------------
+# ---------------------
+# EDA 페이지 클래스
+# ---------------------
 class EDA:
     def __init__(self):
         st.title("📊 지역별 인구 분석 EDA")
-
-        import matplotlib.font_manager as fm
-        plt.rcParams['axes.unicode_minus'] = False
-
         uploaded = st.file_uploader("population_trends.csv 파일을 업로드해주세요", type="csv")
         if not uploaded:
             st.info("CSV 파일을 업로드하면 분석 결과가 표시됩니다.")
@@ -238,38 +237,35 @@ class EDA:
 
         df = pd.read_csv(uploaded)
 
-        # 한글 지역명을 영어로 매핑
+        # 전처리
+        df.replace("-", pd.NA, inplace=True)
+        df[['인구', '출생아수(명)', '사망자수(명)']] = df[['인구', '출생아수(명)', '사망자수(명)']].apply(
+            lambda col: pd.to_numeric(col, errors='coerce').fillna(0).astype(int)
+        )
+
         region_map = {
             '서울': 'Seoul', '부산': 'Busan', '대구': 'Daegu', '인천': 'Incheon', '광주': 'Gwangju',
             '대전': 'Daejeon', '울산': 'Ulsan', '세종': 'Sejong', '경기': 'Gyeonggi', '강원': 'Gangwon',
-            '충북': 'Chungbuk', '충남': 'Chungnam', '전북': 'Jeonbuk', '전남': 'Jeonnam',
-            '경북': 'Gyeongbuk', '경남': 'Gyeongnam', '제주': 'Jeju', '전국': 'Nationwide'
+            '충북': 'Chungbuk', '충남': 'Chungnam', '전북': 'Jeonbuk', '전남': 'Jeonnam', '경북': 'Gyeongbuk',
+            '경남': 'Gyeongnam', '제주': 'Jeju', '전국': 'Nationwide'
         }
-        df['지역'] = df['지역'].replace(region_map)
-
-        df.replace('-', 0, inplace=True)
-        df[['인구', '출생아수(명)', '사망자수(명)']] = df[['인구', '출생아수(명)', '사망자수(명)']].apply(pd.to_numeric)
+        df['지역'] = df['지역'].map(region_map).fillna(df['지역'])
 
         tab1, tab2, tab3, tab4, tab5 = st.tabs(["기초 통계", "연도별 추이", "지역별 분석", "변화량 분석", "시각화"])
 
         with tab1:
-            st.header("📌 기초 통계 및 구조 확인 (결측치/중복 포함)")
-            st.subheader("데이터프레임 구조")
+            st.header("📌 기초 통계 및 구조 확인")
             buffer = io.StringIO()
             df.info(buf=buffer)
             st.text(buffer.getvalue())
-            st.subheader("기초 통계량")
             st.dataframe(df.describe())
-            st.subheader("결측치 개수")
-            st.dataframe(df.isnull().sum())
-            st.subheader("중복 행 개수")
-            st.write(f"중복 행: {df.duplicated().sum()}개")
 
         with tab2:
-            st.header("📈 연도별 전국 인구 추이 분석")
+            st.header("📈 연도별 전국 인구 추이")
             nation = df[df['지역'] == 'Nationwide']
             plt.figure(figsize=(10, 4))
             sns.lineplot(x='연도', y='인구', data=nation)
+
             last3 = nation.sort_values('연도').tail(3)
             avg_delta = (last3['출생아수(명)'].mean() - last3['사망자수(명)'].mean())
             pred_2035 = nation['인구'].iloc[-1] + avg_delta * (2035 - nation['연도'].iloc[-1])
@@ -279,53 +275,51 @@ class EDA:
             plt.ylabel("Population")
             plt.legend()
             st.pyplot(plt.gcf())
-            st.write(f"2035 Predicted Population: {int(pred_2035):,}")
+            st.write(f"2035년 예측 인구: {int(pred_2035):,} 명")
 
         with tab3:
-            st.header("📊 Population Change by Region (last 5 years)")
+            st.header("🏙️ 최근 5년간 지역별 인구 변화량 분석")
             df_sorted = df.sort_values(['지역', '연도'])
             recent = df[df['연도'] >= df['연도'].max() - 5]
             pivot = recent.pivot(index='연도', columns='지역', values='인구')
             delta = pivot.iloc[-1] - pivot.iloc[0]
             delta = delta.drop('Nationwide', errors='ignore').sort_values(ascending=False)
-            plt.figure(figsize=(10, 8))
-            ax1 = sns.barplot(x=delta.values / 1000, y=delta.index, orient='h')
+            fig1, ax1 = plt.subplots(figsize=(10, 6))
+            sns.barplot(x=delta.values / 1000, y=delta.index, ax=ax1)
             ax1.set_title("Population Change by Region")
             ax1.set_xlabel("Change (thousands)")
             ax1.set_ylabel("Region")
             for i, val in enumerate(delta.values / 1000):
                 ax1.text(val, i, f'{val:.1f}', va='center')
-            plt.tight_layout()
-            st.pyplot(plt.gcf())
+            st.pyplot(fig1)
 
-            st.subheader("📈 Growth Rate (%)")
+            st.subheader("💹 변화율 분석")
             base = pivot.iloc[0]
             rate = ((pivot.iloc[-1] - base) / base * 100).drop('Nationwide', errors='ignore').sort_values(ascending=False)
-            plt.figure(figsize=(10, 8))
-            ax2 = sns.barplot(x=rate.values, y=rate.index, orient='h')
-            ax2.set_title("Population Growth Rate by Region")
+            fig2, ax2 = plt.subplots(figsize=(10, 6))
+            sns.barplot(x=rate.values, y=rate.index, ax=ax2)
+            ax2.set_title("Population Growth Rate by Region (%)")
             ax2.set_xlabel("Growth Rate (%)")
             ax2.set_ylabel("Region")
             for i, val in enumerate(rate.values):
                 ax2.text(val, i, f'{val:.1f}%', va='center')
-            plt.tight_layout()
-            st.pyplot(plt.gcf())
+            st.pyplot(fig2)
 
         with tab4:
-            st.header("📋 Top 100 Population Changes")
+            st.header("📊 연도별 인구 증감 Top 100")
             df_diff = df[df['지역'] != 'Nationwide'].sort_values(['지역', '연도'])
             df_diff['증감'] = df_diff.groupby('지역')['인구'].diff()
             top_diff = df_diff.sort_values('증감', ascending=False).head(100)
             top_diff['증감'] = top_diff['증감'].astype(int)
-            styled = top_diff.style.format({"증감": "{:,}"}).background_gradient(
+            styled = top_diff.style.format({"증감": ","}).background_gradient(
                 subset=['증감'], cmap='RdBu', axis=0)
             st.dataframe(styled)
 
         with tab5:
-            st.header("🗺️ Stacked Area Population by Region")
+            st.header("🗺️ 누적 영역 그래프 시각화")
             pivot = df.pivot(index='연도', columns='지역', values='인구')
             pivot = pivot.drop(columns='Nationwide', errors='ignore').fillna(0)
-            pivot = pivot.div(1000)
+            pivot /= 1000
             plt.figure(figsize=(12, 6))
             ax = pivot.plot.area(legend=True)
             ax.legend(title='Region', loc='center left', bbox_to_anchor=(1.0, 0.5))
@@ -334,6 +328,7 @@ class EDA:
             plt.ylabel("Population (thousands)")
             plt.tight_layout()
             st.pyplot(plt.gcf())
+
 
 # ---------------------
 # 페이지 객체 생성
